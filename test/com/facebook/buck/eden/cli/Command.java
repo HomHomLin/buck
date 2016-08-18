@@ -14,23 +14,15 @@
  * under the License.
  */
 
-package com.facebook.buck.haskell;
+package com.facebook.buck.eden.cli;
 
-import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.CxxSourceRuleFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.eden.EdenError;
+import com.facebook.thrift.TException;
 
-/**
- * An interface for rule which can provide interfaces files for a haskell compilation.
- */
-public interface HaskellCompileDep {
+import java.io.IOException;
 
-  /**
-   * @return the {@link HaskellCompileInput} object that contributes to compilation.
-   */
-  HaskellCompileInput getCompileInput(
-      CxxPlatform cxxPlatform,
-      CxxSourceRuleFactory.PicType picType)
-      throws NoSuchBuildTargetException;
-
+/** Command in the Eden CLI. */
+public interface Command {
+  /** Runs the command and returns the exit code that reflects the termination status. */
+  int run() throws EdenError, IOException, TException;
 }

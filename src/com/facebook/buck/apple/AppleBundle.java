@@ -858,11 +858,11 @@ public class AppleBundle
   }
 
   private boolean adHocCodeSignIsSufficient() {
-    return !ApplePlatform.needsCodeSign(platformName);
+    return ApplePlatform.adHocCodeSignIsSufficient(platformName);
   }
 
   private boolean needCodeSign() {
-    return binary.isPresent();
+    return binary.isPresent() && ApplePlatform.needsCodeSign(platformName);
   }
 
   @Override
