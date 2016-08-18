@@ -775,10 +775,9 @@ public class AndroidBinary
           dexReorderToolFile,
           dexReorderDataDumpFile,
           additionalDexStoreToJarPathMap);
-    } else if (!ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
+    } else if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
       secondaryDexDirectoriesBuilder.addAll(preDexMerge.get().getSecondaryDexDirectories());
     }
-
     return new DexFilesInfo(primaryDexPath, secondaryDexDirectoriesBuilder.build());
   }
 

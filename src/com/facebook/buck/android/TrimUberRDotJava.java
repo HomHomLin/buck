@@ -36,6 +36,8 @@ import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.commons.lang.StringUtils;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.FileVisitResult;
@@ -58,14 +60,24 @@ class TrimUberRDotJava extends AbstractBuildRule {
   private static final Pattern R_DOT_JAVA_LINE_PATTERN = Pattern.compile(
       "^ *public static final int(?:\\[\\])? (\\w+)=");
 
+  private static final Pattern R_DOT_JAVA_PACKAGE_NAME_PATTERN = Pattern.compile(
+      "^ *package ([\\w.]+);");
+
+  private String appPackageName;
+  private boolean primerRDotJava;
+
   TrimUberRDotJava(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
       AaptPackageResources aaptPackageResources,
-      Collection<DexProducedFromJavaLibrary> allPreDexRules) {
+      Collection<DexProducedFromJavaLibrary> allPreDexRules,
+      String packageName,
+      boolean primerRDotJava) {
     super(buildRuleParams, resolver);
     this.aaptPackageResources = aaptPackageResources;
     this.allPreDexRules = allPreDexRules;
+    this.appPackageName = packageName;
+    this.primerRDotJava = primerRDotJava;
   }
 
   @Override
@@ -111,9 +123,10 @@ class TrimUberRDotJava extends AbstractBuildRule {
           // stub class.  This will be stripped by ProGuard in release builds and have a minimal
           // effect on debug builds.
           output.putNextEntry(new ZipEntry("com/facebook/buck/AppWithoutResourcesStub.java"));
-          output.write((
-              "package com.facebook.buck_generated;\n" +
-              "final class AppWithoutResourcesStub {}"
+          output.write(
+              (
+                  "package com.facebook.buck_generated;\n" +
+                      "final class AppWithoutResourcesStub {}"
               ).getBytes());
         } else {
           projectFilesystem.walkRelativeFileTree(
@@ -126,35 +139,59 @@ class TrimUberRDotJava extends AbstractBuildRule {
                     return FileVisitResult.CONTINUE;
                   }
                   if (!attrs.isRegularFile()) {
-                    throw new RuntimeException(String.format(
-                        "Found unknown file type while looking for R.java: %s (%s)",
-                        file,
-                        attrs));
+                    throw new RuntimeException(
+                        String.format(
+                            "Found unknown file type while looking for R.java: %s (%s)",
+                            file,
+                            attrs));
                   }
                   if (!file.getFileName().toString().endsWith(".java")) {
-                    throw new RuntimeException(String.format(
-                        "Found unknown file while looking for R.java: %s",
-                        file));
+                    throw new RuntimeException(
+                        String.format(
+                            "Found unknown file while looking for R.java: %s",
+                            file));
+                  }
+                  boolean isPrimerDotJavaFile = isPrimerDotJava(projectFilesystem.readLines(file));
+                  if ((primerRDotJava && isPrimerDotJavaFile)
+                      || (!primerRDotJava && !isPrimerDotJavaFile)) {
+                    //insert
+                    output.putNextEntry(
+                        new ZipEntry(
+                            MorePaths.pathWithUnixSeparators(sourceDir.relativize(file))));
+                    if (allPreDexRules.isEmpty()) {
+                      // If there are no pre-dexed inputs, we don't yet support trimming
+                      // R.java, so just copy it verbatim (instead of trimming it down to nothing).
+                      projectFilesystem.copyToOutputStream(file, output);
+                    } else {
+                      filterRDotJava(
+                          projectFilesystem.readLines(file),
+                          output,
+                          allReferencedResources);
+                    }
+                  } else {
+                    //ignore
                   }
 
-                  output.putNextEntry(new ZipEntry(
-                      MorePaths.pathWithUnixSeparators(sourceDir.relativize(file))));
-                  if (allPreDexRules.isEmpty()) {
-                    // If there are no pre-dexed inputs, we don't yet support trimming
-                    // R.java, so just copy it verbatim (instead of trimming it down to nothing).
-                    projectFilesystem.copyToOutputStream(file, output);
-                  } else {
-                    filterRDotJava(
-                        projectFilesystem.readLines(file),
-                        output,
-                        allReferencedResources);
-                  }
                   return FileVisitResult.CONTINUE;
                 }
               });
         }
       }
       return StepExecutionResult.SUCCESS;
+    }
+
+    private boolean isPrimerDotJava(List<String> rDotJavaLines) {
+      Matcher m;
+      for (String line : rDotJavaLines) {
+        m = R_DOT_JAVA_PACKAGE_NAME_PATTERN.matcher(line);
+        if (m.find()) {
+          String packageName = m.group(1);
+          return StringUtils.equals(appPackageName, packageName);
+        } else {
+          continue;
+        }
+      }
+      return false;
     }
 
     @Override
@@ -176,12 +213,22 @@ class TrimUberRDotJava extends AbstractBuildRule {
       OutputStream output,
       ImmutableSet<String> allReferencedResources)
       throws IOException {
+    String packageName = null;
+    Matcher m;
     for (String line : rDotJavaLines) {
-      Matcher m = R_DOT_JAVA_LINE_PATTERN.matcher(line);
-      // We ignore the containing nested class and just match on the resource name.
+      if (packageName == null) {
+        m = R_DOT_JAVA_PACKAGE_NAME_PATTERN.matcher(line);
+        if (m.find()) {
+          packageName = m.group(1);
+        } else {
+          continue;
+        }
+      }
+      m = R_DOT_JAVA_LINE_PATTERN.matcher(line);
+      // We match on the package name + resource name.
       // This can cause us to keep (for example) R.layout.foo when only R.string.foo
       // is referenced.  That is a very rare case, though, and not worth the complexity to fix.
-      if (m.find() && !allReferencedResources.contains(m.group(1))) {
+      if (m.find() && !allReferencedResources.contains(packageName + "." + m.group(1))) {
         continue;
       }
       output.write(line.getBytes(Charsets.UTF_8));
