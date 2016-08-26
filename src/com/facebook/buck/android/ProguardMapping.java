@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.log.Logger;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
@@ -43,10 +44,13 @@ public class ProguardMapping {
 
       Matcher matcher = CLASS_LINE_PATTERN.matcher(line);
       if (!matcher.matches()) {
-        throw new IllegalArgumentException("Invalid line in proguard mapping: " + line);
+        //TODO
+        Logger.get(ProguardMapping.class).error("Invalid line in proguard mapping: " + line);
+        //throw new IllegalArgumentException("Invalid line in proguard mapping: " + line);
+      }else {
+        classMappingBuilder.put(matcher.group(1), matcher.group(2));
       }
 
-      classMappingBuilder.put(matcher.group(1), matcher.group(2));
     }
 
     return classMappingBuilder.build();
