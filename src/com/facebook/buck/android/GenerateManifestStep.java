@@ -104,7 +104,7 @@ public class GenerateManifestStep implements Step {
         outManifestFile,
         skeletonManifestFile,
         Iterables.toArray(libraryManifestFiles, File.class))) {
-      throw new HumanReadableException("Error generating manifest file");
+      throw new HumanReadableException("Error generating manifest file skeletonManifestFile:"+skeletonManifestFile.toString()+"--->outManifestFile:"+outManifestFile.toString());
     }
 
     if (context.getPlatform() == Platform.WINDOWS) {
