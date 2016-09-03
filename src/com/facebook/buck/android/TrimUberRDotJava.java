@@ -36,7 +36,6 @@ import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import org.apache.commons.lang.StringUtils;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -56,28 +55,33 @@ import java.util.zip.ZipEntry;
 class TrimUberRDotJava extends AbstractBuildRule {
   private final AaptPackageResources aaptPackageResources;
   private final Collection<DexProducedFromJavaLibrary> allPreDexRules;
+  //private static final Logger logger = Logger.get(TrimUberRDotJava.class);
 
-  private static final Pattern R_DOT_JAVA_LINE_PATTERN = Pattern.compile(
+  public static final Pattern R_DOT_JAVA_LINE_PATTERN = Pattern.compile(
       "^ *public static final int(?:\\[\\])? (\\w+)=");
 
-  private static final Pattern R_DOT_JAVA_PACKAGE_NAME_PATTERN = Pattern.compile(
+  public static final Pattern R_DOT_JAVA_PACKAGE_NAME_PATTERN = Pattern.compile(
       "^ *package ([\\w.]+);");
 
-  private String appPackageName;
-  private boolean primerRDotJava;
+  private List<String> appPackageNameList;
+  private Optional<Integer> index;
+  public static final int MAX_DEX_FIELD_NUM = 30000;
+  private Optional<CheckNeedSplitDexForDotJava> checkNeedSplitDexForDotJava;
 
   TrimUberRDotJava(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
       AaptPackageResources aaptPackageResources,
       Collection<DexProducedFromJavaLibrary> allPreDexRules,
-      String packageName,
-      boolean primerRDotJava) {
+      List<String> appPackageNameList,
+      Optional<CheckNeedSplitDexForDotJava> checkNeedSplitDexForDotJava,
+      Optional<Integer> index) {
     super(buildRuleParams, resolver);
     this.aaptPackageResources = aaptPackageResources;
     this.allPreDexRules = allPreDexRules;
-    this.appPackageName = packageName;
-    this.primerRDotJava = primerRDotJava;
+    this.appPackageNameList = appPackageNameList;
+    this.checkNeedSplitDexForDotJava = checkNeedSplitDexForDotJava;
+    this.index = index;
   }
 
   @Override
@@ -151,9 +155,8 @@ class TrimUberRDotJava extends AbstractBuildRule {
                             "Found unknown file while looking for R.java: %s",
                             file));
                   }
-                  boolean isPrimerDotJavaFile = isPrimerDotJava(projectFilesystem.readLines(file));
-                  if ((primerRDotJava && isPrimerDotJavaFile)
-                      || (!primerRDotJava && !isPrimerDotJavaFile)) {
+                  boolean needAdd = needAdd(projectFilesystem.readLines(file));
+                  if (needAdd) {
                     //insert
                     output.putNextEntry(
                         new ZipEntry(
@@ -180,13 +183,17 @@ class TrimUberRDotJava extends AbstractBuildRule {
       return StepExecutionResult.SUCCESS;
     }
 
-    private boolean isPrimerDotJava(List<String> rDotJavaLines) {
+    private boolean needAdd(List<String> rDotJavaLines) {
       Matcher m;
       for (String line : rDotJavaLines) {
         m = R_DOT_JAVA_PACKAGE_NAME_PATTERN.matcher(line);
         if (m.find()) {
           String packageName = m.group(1);
-          return StringUtils.equals(appPackageName, packageName);
+          if (appPackageNameList.size() == 0) {
+            List<String> stringList = checkNeedSplitDexForDotJava.get().getAppPackageNameList(index);
+            appPackageNameList.addAll(stringList);
+          }
+          return appPackageNameList.contains(packageName);
         } else {
           continue;
         }

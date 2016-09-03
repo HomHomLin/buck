@@ -59,7 +59,9 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
+
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
@@ -79,10 +81,6 @@ public class AndroidBinaryGraphEnhancer {
       ImmutableFlavor.of("trim_uber_r_dot_java");
   private static final Flavor COMPILE_UBER_R_DOT_JAVA_FLAVOR =
       ImmutableFlavor.of("compile_uber_r_dot_java");
-  private static final Flavor TRIM_UBER_R_DOT_JAVA_OTHER_FLAVOR =
-      ImmutableFlavor.of("trim_uber_r_dot_java_other");
-  private static final Flavor COMPILE_UBER_R_DOT_JAVA_OTHER_FLAVOR =
-      ImmutableFlavor.of("compile_uber_r_dot_java_other");
   private static final Flavor DEX_UBER_R_DOT_JAVA_FLAVOR =
       ImmutableFlavor.of("dex_uber_r_dot_java");
 
@@ -334,7 +332,8 @@ public class AndroidBinaryGraphEnhancer {
           preDexBuildConfigs,
           packageableCollection.getJavaLibrariesToDex());
     }
-    String packageName= manifestEntries.getPlaceholders().get().get("applicationId");
+    String packageName = manifestEntries.getPlaceholders().get().get("applicationId");
+
     // Create rule to trim uber R.java sources.
     Collection<DexProducedFromJavaLibrary> preDexedLibrariesForResourceIdFiltering =
         trimResourceIds ?
@@ -348,27 +347,17 @@ public class AndroidBinaryGraphEnhancer {
                 .addAll(preDexedLibrariesForResourceIdFiltering)
                 .build()),
         /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+    ArrayList<String> packageNameList = new ArrayList<>();
+    packageNameList.add(packageName);
     TrimUberRDotJava trimUberRDotJava = new TrimUberRDotJava(
         paramsForTrimUberRDotJava,
         pathResolver,
         aaptPackageResources,
-        preDexedLibrariesForResourceIdFiltering, packageName, true);
+        preDexedLibrariesForResourceIdFiltering,
+        packageNameList,
+        Optional.<CheckNeedSplitDexForDotJava>absent(),
+        Optional.<Integer>absent());
     ruleResolver.addToIndex(trimUberRDotJava);
-
-    BuildRuleParams paramsForTrimUberRDotJavaOther = buildRuleParams.copyWithChanges(
-        createBuildTargetWithFlavor(TRIM_UBER_R_DOT_JAVA_OTHER_FLAVOR),
-        Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .add(aaptPackageResources)
-                .addAll(preDexedLibrariesForResourceIdFiltering)
-                .build()),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
-    TrimUberRDotJava trimUberRDotJavaOthers = new TrimUberRDotJava(
-        paramsForTrimUberRDotJavaOther,
-        pathResolver,
-        aaptPackageResources,
-        preDexedLibrariesForResourceIdFiltering, packageName, false);
-    ruleResolver.addToIndex(trimUberRDotJavaOthers);
 
     // Create rule to compile uber R.java sources.
     BuildTarget compileUberRDotJavaTarget =
@@ -402,51 +391,17 @@ public class AndroidBinaryGraphEnhancer {
         /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of());
     ruleResolver.addToIndex(compileUberRDotJava);
 
-    // Create rule to compile uber R.java sources.
-    BuildTarget compileUberRDotJavaTargetOther =
-        createBuildTargetWithFlavor(COMPILE_UBER_R_DOT_JAVA_OTHER_FLAVOR);
-    BuildRuleParams paramsForCompileUberRDotJavaOther = buildRuleParams.copyWithChanges(
-        compileUberRDotJavaTargetOther,
-        Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(trimUberRDotJavaOthers)),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
-    JavaLibrary compileUberRDotJavaOther = new DefaultJavaLibrary(
-        paramsForCompileUberRDotJavaOther,
-        pathResolver,
-        ImmutableSet.of(
-            new BuildTargetSourcePath(
-                trimUberRDotJavaOthers.getBuildTarget(),
-                trimUberRDotJavaOthers.getPathToOutput())),
-        /* resources */ ImmutableSet.<SourcePath>of(),
-        javacOptions.getGeneratedSourceFolderName(),
-        /* proguardConfig */ Optional.<SourcePath>absent(),
-        /* postprocessClassesCommands */ ImmutableList.<String>of(),
-        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
-        /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
-        // Because the Uber R.java has no method bodies or private methods or fields,
-        // we can just use its output as the ABI.
-        new BuildTargetSourcePath(compileUberRDotJavaTargetOther),
-        /* trackClassUsage */ false,
-        /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-        /* resourcesRoot */ Optional.<Path>absent(),
-        /* mavenCoords */ Optional.<String>absent(),
-        ImmutableSortedSet.<BuildTarget>of(),
-        /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of());
-    ruleResolver.addToIndex(compileUberRDotJavaOther);
-    // add other R to perDex
-    enhancedDeps.add(compileUberRDotJavaOther);
+    ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> perDexDotJavaOther = getPreDexDotJavaOthers(
+        enhancedDeps,
+        aaptPackageResources,
+        packageName,
+        preDexedLibrariesForResourceIdFiltering);
 
-    ImmutableMultimap<APKModule, DexProducedFromJavaLibrary>  perDexDotJavaOther = createPreDexRulesForLibraries(
-        ImmutableList.<DexProducedFromJavaLibrary>of() ,
-        ImmutableSet.<BuildTarget>of(
-            compileUberRDotJavaTargetOther.getBuildTarget())
-        );
-
-    preDexedLibraries=
-    ImmutableMultimap.<APKModule, DexProducedFromJavaLibrary>builder().
-        putAll(perDexDotJavaOther).
-        putAll(preDexedLibraries)
-        .build();
+    preDexedLibraries =
+        ImmutableMultimap.<APKModule, DexProducedFromJavaLibrary>builder().
+            putAll(perDexDotJavaOther).
+            putAll(preDexedLibraries)
+            .build();
 
 //    for (Map.Entry<APKModule, DexProducedFromJavaLibrary> entry : preDexedLibraries.entries()) {
 //      Logger.get(AndroidBinaryGraphEnhancer.class).error(
@@ -527,6 +482,99 @@ public class AndroidBinaryGraphEnhancer {
         .setFinalDeps(enhancedDeps.build())
         .setAPKModuleGraph(apkModuleGraph)
         .build();
+  }
+
+  private ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> getPreDexDotJavaOthers(
+      ImmutableSortedSet.Builder<BuildRule> enhancedDeps,
+      AaptPackageResources aaptPackageResources,
+      String packageName,
+      Collection<DexProducedFromJavaLibrary> preDexedLibrariesForResourceIdFiltering) {
+    ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> perDexDotJavaOther =
+        ImmutableMultimap.of();
+
+    BuildRuleParams checkParams = buildRuleParams.copyWithChanges(
+        createBuildTargetWithFlavor(ImmutableFlavor.of("check_split_dot_java_dex")),
+        Suppliers.ofInstance(
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .add(aaptPackageResources)
+                .build()),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+
+    CheckNeedSplitDexForDotJava checkNeedSplitDexForDotJava = new CheckNeedSplitDexForDotJava(
+        checkParams, pathResolver, packageName, aaptPackageResources);
+
+    ruleResolver.addToIndex(checkNeedSplitDexForDotJava);
+
+    for (int i = 0; i < 2; ++i) {
+      //String totalName = "_" + StringUtils.join(splitPackageNameList, "_").hashCode();
+      String totalName = "_" + i;
+      BuildRuleParams paramsForTrimUberRDotJavaOther = buildRuleParams.copyWithChanges(
+          createBuildTargetWithFlavor(
+              ImmutableFlavor.of(TRIM_UBER_R_DOT_JAVA_FLAVOR.getName() + totalName)),
+          Suppliers.ofInstance(
+              ImmutableSortedSet.<BuildRule>naturalOrder()
+                  .add(aaptPackageResources)
+                  .addAll(preDexedLibrariesForResourceIdFiltering)
+                  .add(checkNeedSplitDexForDotJava)
+                  .build()),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+      TrimUberRDotJava trimUberRDotJavaOthers = new TrimUberRDotJava(
+          paramsForTrimUberRDotJavaOther,
+          pathResolver,
+          aaptPackageResources,
+          preDexedLibrariesForResourceIdFiltering,
+          new ArrayList<String>(),
+          Optional.of(checkNeedSplitDexForDotJava),
+          Optional.of(i));
+      ruleResolver.addToIndex(trimUberRDotJavaOthers);
+
+      // Create rule to compile uber R.java sources.
+      BuildTarget compileUberRDotJavaTargetOther =
+          createBuildTargetWithFlavor(
+              ImmutableFlavor.of(COMPILE_UBER_R_DOT_JAVA_FLAVOR.getName() + totalName));
+      BuildRuleParams paramsForCompileUberRDotJavaOther = buildRuleParams.copyWithChanges(
+          compileUberRDotJavaTargetOther,
+          Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of(trimUberRDotJavaOthers)),
+        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.<BuildRule>of()));
+      JavaLibrary compileUberRDotJavaOther = new DefaultJavaLibrary(
+          paramsForCompileUberRDotJavaOther,
+          pathResolver,
+          ImmutableSet.of(
+              new BuildTargetSourcePath(
+                  trimUberRDotJavaOthers.getBuildTarget(),
+                  trimUberRDotJavaOthers.getPathToOutput())),
+        /* resources */ ImmutableSet.<SourcePath>of(),
+          javacOptions.getGeneratedSourceFolderName(),
+        /* proguardConfig */ Optional.<SourcePath>absent(),
+        /* postprocessClassesCommands */ ImmutableList.<String>of(),
+        /* exportedDeps */ ImmutableSortedSet.<BuildRule>of(),
+        /* providedDeps */ ImmutableSortedSet.<BuildRule>of(),
+          // Because the Uber R.java has no method bodies or private methods or fields,
+          // we can just use its output as the ABI.
+          new BuildTargetSourcePath(compileUberRDotJavaTargetOther),
+        /* trackClassUsage */ false,
+        /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+          new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+        /* resourcesRoot */ Optional.<Path>absent(),
+        /* mavenCoords */ Optional.<String>absent(),
+          ImmutableSortedSet.<BuildTarget>of(),
+        /* classesToRemoveFromJar */ ImmutableSet.<Pattern>of());
+      ruleResolver.addToIndex(compileUberRDotJavaOther);
+      // add other R to perDex
+      enhancedDeps.add(compileUberRDotJavaOther);
+
+      perDexDotJavaOther =
+          ImmutableMultimap.<APKModule, DexProducedFromJavaLibrary>
+              builder()
+              .putAll(perDexDotJavaOther)
+              .putAll(
+                  createPreDexRulesForLibraries(
+                      ImmutableList.<DexProducedFromJavaLibrary>of(),
+                      ImmutableSet.<BuildTarget>of(
+                          compileUberRDotJavaTargetOther.getBuildTarget())
+                  )).build();
+    }
+    return perDexDotJavaOther;
   }
 
   /**
@@ -644,7 +692,7 @@ public class AndroidBinaryGraphEnhancer {
   @VisibleForTesting
   ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> createPreDexRulesForLibraries(
       Iterable<DexProducedFromJavaLibrary> preDexRulesNotInThePackageableCollection,
-      ImmutableSet<BuildTarget>  javaLibrariesBuildTargetList) {
+      ImmutableSet<BuildTarget> javaLibrariesBuildTargetList) {
     ImmutableMultimap.Builder<APKModule, DexProducedFromJavaLibrary> preDexDeps =
         ImmutableMultimap.builder();
     preDexDeps.putAll(apkModuleGraph.getRootAPKModule(), preDexRulesNotInThePackageableCollection);
@@ -749,4 +797,6 @@ public class AndroidBinaryGraphEnhancer {
             })
         .toList();
   }
+
+
 }
