@@ -19,6 +19,7 @@ package com.android.dx.command.dexer;
 import com.android.dex.Dex;
 import com.android.dex.DexException;
 import com.android.dex.DexFormat;
+import com.android.dex.DexSimpleInfo;
 import com.android.dex.util.FileUtils;
 import com.android.dx.Version;
 import com.android.dx.cf.code.SimException;
@@ -178,6 +179,7 @@ public class Main {
     /** {@code non-null;} output file in-progress */
     private DexFile outputDex;
 
+    private DexSimpleInfo  dexSimpleInfo =new DexSimpleInfo();;
     /**
      * {@code null-ok;} map of resources to include in the output, or
      * {@code null} if resources are being ignored
@@ -325,6 +327,7 @@ public class Main {
             }
 
             computeReferencedResources();
+            fillDexSimpleInfo();
         }
 
         if (args.incremental) {
@@ -1659,5 +1662,15 @@ public class Main {
                 resourceNames.add(fieldClass.getPackageName() + "." + fieldName.getString());
             }
         }
+    }
+
+    private void fillDexSimpleInfo(){
+        dexSimpleInfo.setClassNum(outputDex.getTypeIds().items().size());
+        dexSimpleInfo.setFieldNum(outputDex.getFieldIds().items().size());
+        dexSimpleInfo.setMethodNum(outputDex.getMethodIds().items().size());
+    }
+
+    public DexSimpleInfo getDexSimpleInfo() {
+        return dexSimpleInfo;
     }
 }

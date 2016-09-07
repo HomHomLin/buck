@@ -36,7 +36,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -60,6 +59,7 @@ public class PreDexedFilesSorter {
   private final ClassNameFilter primaryDexFilter;
   private final APKModuleGraph apkModuleGraph;
   private final long linearAllocHardLimit;
+  public static final int DEX_INFO_MAX_LIMIT = 65535;
   private final DexStore dexStore;
   private final Path secondaryDexJarFilesDir;
   private final Path additionalDexJarFilesDir;
@@ -137,8 +137,8 @@ public class PreDexedFilesSorter {
 
     for (DexStoreContents contents : apkModuleDexesContents.values()) {
       resultBuilder.put(
-            contents.apkModule.getName(),
-            contents.getResult());
+          contents.apkModule.getName(),
+          contents.getResult());
     }
 
     return resultBuilder.build();
@@ -158,6 +158,7 @@ public class PreDexedFilesSorter {
     private int primaryDexSize;
     private List<DexWithClasses> primaryDexContents;
     private int currentDexSize;
+    private DexInfo dexInfo;
     private List<DexWithClasses> currentDexContents;
 
     private final APKModule apkModule;
@@ -180,6 +181,7 @@ public class PreDexedFilesSorter {
       currentDexContents = Lists.newArrayList();
       primaryDexSize = 0;
       primaryDexContents = Lists.newArrayList();
+      dexInfo = new DexInfo(0, 0, 0);
     }
 
     public void addPrimaryDex(DexWithClasses dexWithClasses) {
@@ -211,9 +213,15 @@ public class PreDexedFilesSorter {
       }
 
       // If we're over the size threshold, start writing to a new dex
-      if (dexWithClasses.getSizeEstimate() + currentDexSize > linearAllocHardLimit) {
+      if (dexWithClasses.getSizeEstimate() + currentDexSize > linearAllocHardLimit
+          || dexInfo.getFieldNum() + dexWithClasses.getDexInfo().getFieldNum() > DEX_INFO_MAX_LIMIT
+          || dexInfo.getMethodNum() + dexWithClasses.getDexInfo().getMethodNum() > DEX_INFO_MAX_LIMIT
+          || dexInfo.getClassNum() + dexWithClasses.getDexInfo().getClassNum() > DEX_INFO_MAX_LIMIT) {
         currentDexSize = 0;
         currentDexContents = Lists.newArrayList();
+        dexInfo.setMethodNum(0);
+        dexInfo.setFieldNum(0);
+        dexInfo.setClassNum(0);
       }
 
       // If this is the first class in the dex, initialize it with a canary and add it to the set of
@@ -225,6 +233,9 @@ public class PreDexedFilesSorter {
             dexesContents.size() + 1,
             steps);
         currentDexSize += canary.getSizeEstimate();
+        dexInfo.setFieldNum(canary.getDexInfo().getFieldNum());
+        dexInfo.setClassNum(canary.getDexInfo().getClassNum());
+        dexInfo.setMethodNum(canary.getDexInfo().getMethodNum());
 
         dexesContents.add(currentDexContents);
         dexInputsHashes.put(canary.getPathToDexFile(), canary.getClassesHash());
@@ -234,13 +245,16 @@ public class PreDexedFilesSorter {
       currentDexContents.add(dexWithClasses);
       dexInputsHashes.put(dexWithClasses.getPathToDexFile(), dexWithClasses.getClassesHash());
       currentDexSize += dexWithClasses.getSizeEstimate();
+      dexInfo.setFieldNum(dexInfo.getFieldNum()+dexWithClasses.getDexInfo().getFieldNum());
+      dexInfo.setClassNum(dexInfo.getClassNum()+ dexWithClasses.getDexInfo().getClassNum());
+      dexInfo.setMethodNum(dexInfo.getMethodNum()+ dexWithClasses.getDexInfo().getMethodNum());
     }
 
     Result getResult() {
-      Map<Path, DexWithClasses> metadataTxtEntries = Maps.newHashMap();
+
       ImmutableMultimap.Builder<Path, Path> secondaryOutputToInputs = ImmutableMultimap.builder();
       boolean isRootModule = apkModule.equals(apkModuleGraph.getRootAPKModule());
-
+      Map<Path,DexWithClasses> metadataTxtEntries=new HashMap<>();
       for (int index = 0; index < dexesContents.size(); index++) {
         Path pathToSecondaryDex;
         if (isRootModule) {
@@ -290,20 +304,21 @@ public class PreDexedFilesSorter {
       final String className = relativePathToClassFile.replaceFirst("\\.class$", "");
 
       // Write out the .class file.
-      steps.add(new AbstractExecutionStep("write_canary_class") {
-        @Override
-        public StepExecutionResult execute(ExecutionContext context) {
-          Path classFile = scratchDirectoryForCanaryClass.resolve(relativePathToClassFile);
-          try (InputStream inputStream = fileLike.getInput()) {
-            filesystem.createParentDirs(classFile);
-            filesystem.copyToPath(inputStream, classFile);
-          } catch (IOException e) {
-            context.logError(e,  "Error writing canary class file: %s.",  classFile.toString());
-            return StepExecutionResult.ERROR;
-          }
-          return StepExecutionResult.SUCCESS;
-        }
-      });
+      steps.add(
+          new AbstractExecutionStep("write_canary_class") {
+            @Override
+            public StepExecutionResult execute(ExecutionContext context) {
+              Path classFile = scratchDirectoryForCanaryClass.resolve(relativePathToClassFile);
+              try (InputStream inputStream = fileLike.getInput()) {
+                filesystem.createParentDirs(classFile);
+                filesystem.copyToPath(inputStream, classFile);
+              } catch (IOException e) {
+                context.logError(e, "Error writing canary class file: %s.", classFile.toString());
+                return StepExecutionResult.ERROR;
+              }
+              return StepExecutionResult.SUCCESS;
+            }
+          });
 
       return new DexWithClasses() {
 
@@ -312,6 +327,11 @@ public class PreDexedFilesSorter {
           // Because we do not know the units being used for DEX size estimation and the canary
           // should be very small, assume the size is zero.
           return 0;
+        }
+
+        @Override
+        public DexInfo getDexInfo() {
+          return new DexInfo(0, 0, 1);
         }
 
         @Override
@@ -340,14 +360,14 @@ public class PreDexedFilesSorter {
     public final APKModule apkModule;
     public final Set<Path> primaryDexInputs;
     public final Multimap<Path, Path> secondaryOutputToInputs;
-    public final Map<Path, DexWithClasses> metadataTxtDexEntries;
+    public final Map<Path,DexWithClasses> metadataTxtDexEntries;
     public final ImmutableMap<Path, Sha1HashCode> dexInputHashes;
 
     public Result(
         APKModule apkModule,
         Set<Path> primaryDexInputs,
         Multimap<Path, Path> secondaryOutputToInputs,
-        Map<Path, DexWithClasses> metadataTxtDexEntries,
+        Map<Path,DexWithClasses> metadataTxtDexEntries,
         final ImmutableMap<Path, Sha1HashCode> dexInputHashes) {
       this.apkModule = apkModule;
       this.primaryDexInputs = primaryDexInputs;

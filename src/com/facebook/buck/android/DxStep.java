@@ -49,12 +49,18 @@ public class DxStep extends ShellStep {
   public static final String XMX_OVERRIDE =
       "";
 
-  /** Options to pass to {@code dx}. */
+  /**
+   * Options to pass to {@code dx}.
+   */
   public enum Option {
-    /** Specify the {@code --no-optimize} flag when running {@code dx}. */
+    /**
+     * Specify the {@code --no-optimize} flag when running {@code dx}.
+     */
     NO_OPTIMIZE,
 
-    /** Specify the {@code --force-jumbo} flag when running {@code dx}. */
+    /**
+     * Specify the {@code --force-jumbo} flag when running {@code dx}.
+     */
     FORCE_JUMBO,
 
     /**
@@ -67,8 +73,7 @@ public class DxStep extends ShellStep {
      * Execute DX in-process instead of fork/execing.
      * This only works with custom dx.
      */
-    RUN_IN_PROCESS,
-    ;
+    RUN_IN_PROCESS,;
   }
 
   private static final Supplier<String> DEFAULT_GET_CUSTOM_DX = new Supplier<String>() {
@@ -84,14 +89,15 @@ public class DxStep extends ShellStep {
   private final Set<Path> filesToDex;
   private final Set<Option> options;
   private final Supplier<String> getPathToCustomDx;
+  private DexInfo dexInfo;
 
   @Nullable
   private Collection<String> resourcesReferencedInCode;
 
   /**
    * @param outputDexFile path to the file where the generated classes.dex should go.
-   * @param filesToDex each element in this set is a path to a .class file, a zip file of .class
-   *     files, or a directory of .class files.
+   * @param filesToDex    each element in this set is a path to a .class file, a zip file of .class
+   *                      files, or a directory of .class files.
    */
   public DxStep(ProjectFilesystem filesystem, Path outputDexFile, Iterable<Path> filesToDex) {
     this(filesystem, outputDexFile, filesToDex, EnumSet.noneOf(DxStep.Option.class));
@@ -99,9 +105,9 @@ public class DxStep extends ShellStep {
 
   /**
    * @param outputDexFile path to the file where the generated classes.dex should go.
-   * @param filesToDex each element in this set is a path to a .class file, a zip file of .class
-   *     files, or a directory of .class files.
-   * @param options to pass to {@code dx}.
+   * @param filesToDex    each element in this set is a path to a .class file, a zip file of .class
+   *                      files, or a directory of .class files.
+   * @param options       to pass to {@code dx}.
    */
   public DxStep(
       ProjectFilesystem filesystem,
@@ -202,6 +208,9 @@ public class DxStep extends ShellStep {
     ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     PrintStream stderrStream = new PrintStream(stderr);
     try {
+//      Logger.get(DxStep.class).error(
+//          "DxStep exception!! outputDexFile %s filesToDex %s"
+//          , outputDexFile, FluentIterable.from(filesToDex).toSet().toString());
       com.android.dx.command.dexer.Main dexer = new com.android.dx.command.dexer.Main();
       int returncode = dexer.run(
           args.toArray(new String[args.size()]),
@@ -214,6 +223,8 @@ public class DxStep extends ShellStep {
       }
       if (returncode == 0) {
         resourcesReferencedInCode = dexer.getReferencedResourceNames();
+        dexInfo = new DexInfo(dexer.getDexSimpleInfo());
+
       }
       return returncode;
     } catch (IOException e) {
@@ -247,5 +258,9 @@ public class DxStep extends ShellStep {
   @Nullable
   Collection<String> getResourcesReferencedInCode() {
     return resourcesReferencedInCode;
+  }
+
+  public DexInfo getDexInfo() {
+    return dexInfo;
   }
 }

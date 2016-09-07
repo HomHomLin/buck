@@ -71,7 +71,7 @@ import javax.annotation.Nullable;
  * very specific purpose: it takes a {@link JavaLibrary} and dexes the output of the
  * {@link JavaLibrary} if its list of classes is non-empty. Because it is expected to be used with
  * pre-dexing, we always pass the {@code --force-jumbo} flag to {@code dx} in this buildable.
- * <p>
+ * <p/>
  * Most {@link BuildRule}s can determine the (possibly null) path to their output file from their
  * definition. This is an anomaly because we do not know whether this will write a {@code .dex} file
  * until runtime. Unfortunately, because there is no such thing as an empty {@code .dex} file, we
@@ -95,6 +95,8 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
   static final String CLASSNAMES_TO_HASHES = "classnames_to_hashes";
   @VisibleForTesting
   static final String REFERENCED_RESOURCES = "referenced_resources";
+  @VisibleForTesting
+  static final String DEX_LIMIT_INFO = "dex_limit_info";
 
   private final JavaLibrary javaLibrary;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
@@ -175,9 +177,13 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
                 REFERENCED_RESOURCES,
                 Ordering.natural().immutableSortedCopy(referencedResources));
           }
+          if (dx.getDexInfo() != null) {
+            buildableContext.addMetadata(DEX_LIMIT_INFO, dx.getDexInfo().toString());
+          }
         }
 
-        buildableContext.addMetadata(LINEAR_ALLOC_KEY_ON_DISK_METADATA,
+        buildableContext.addMetadata(
+            LINEAR_ALLOC_KEY_ON_DISK_METADATA,
             String.valueOf(linearAllocEstimate.get()));
 
         // Record the classnames to hashes map.
@@ -206,10 +212,11 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
     Map<String, HashCode> classnamesToHashes = Maps.transformValues(map, TO_HASHCODE);
     Optional<ImmutableList<String>> referencedResources =
         onDiskBuildInfo.getValues(REFERENCED_RESOURCES);
+    String dexInfo = onDiskBuildInfo.getValue(DEX_LIMIT_INFO).or("");
     return new BuildOutput(
         linearAllocEstimate,
         ImmutableSortedMap.copyOf(classnamesToHashes),
-        referencedResources);
+        referencedResources,dexInfo);
   }
 
   @Override
@@ -221,14 +228,15 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
     private final int linearAllocEstimate;
     private final ImmutableSortedMap<String, HashCode> classnamesToHashes;
     private final Optional<ImmutableList<String>> referencedResources;
-
+    private final DexInfo dexInfo;
     BuildOutput(
         int linearAllocEstimate,
         ImmutableSortedMap<String, HashCode> classnamesToHashes,
-        Optional<ImmutableList<String>> referencedResources) {
+        Optional<ImmutableList<String>> referencedResources,String dexInfoStr) {
       this.linearAllocEstimate = linearAllocEstimate;
       this.classnamesToHashes = classnamesToHashes;
       this.referencedResources = referencedResources;
+      this.dexInfo = DexInfo.fromString(dexInfoStr);
     }
   }
 
@@ -259,6 +267,10 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
 
   Optional<ImmutableList<String>> getReferencedResources() {
     return buildOutputInitializer.getBuildOutput().referencedResources;
+  }
+
+  DexInfo getDexInfo(){
+    return buildOutputInitializer.getBuildOutput().dexInfo;
   }
 
   /**

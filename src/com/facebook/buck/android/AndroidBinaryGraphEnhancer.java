@@ -735,6 +735,10 @@ public class AndroidBinaryGraphEnhancer {
       DexProducedFromJavaLibrary preDex =
           new DexProducedFromJavaLibrary(paramsForPreDex, pathResolver, javaLibrary);
       ruleResolver.addToIndex(preDex);
+//      Logger.get(AndroidBinaryGraphEnhancer.class).error(
+//          "apkModuleGraph %s,buildTarget %s",
+//          apkModuleGraph.findModuleForTarget(buildTarget),
+//          buildTarget);
       preDexDeps.put(apkModuleGraph.findModuleForTarget(buildTarget), preDex);
     }
     return preDexDeps.build();

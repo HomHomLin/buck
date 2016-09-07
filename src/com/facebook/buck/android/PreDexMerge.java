@@ -338,7 +338,7 @@ public class PreDexMerge extends AbstractBuildRule implements InitializableFromD
     steps.add(new AbstractExecutionStep(nameBuilder.toString()) {
       @Override
       public StepExecutionResult execute(ExecutionContext executionContext) {
-        Map<Path, DexWithClasses> metadataTxtEntries = result.metadataTxtDexEntries;
+        Map<Path,DexWithClasses> metadataTxtEntries = result.metadataTxtDexEntries;
         List<String> lines = Lists.newArrayListWithCapacity(metadataTxtEntries.size());
 
         lines.add(".id " + storeId);

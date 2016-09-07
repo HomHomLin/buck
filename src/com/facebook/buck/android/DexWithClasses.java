@@ -32,60 +32,74 @@ import javax.annotation.Nullable;
  */
 public interface DexWithClasses {
 
-  /** @return path from the project root where the {@code .dex.jar} file can be found. */
+  /**
+   * @return path from the project root where the {@code .dex.jar} file can be found.
+   */
   Path getPathToDexFile();
 
-  /** @return the names of the {@code .class} files that went into the DEX file. */
+  /**
+   * @return the names of the {@code .class} files that went into the DEX file.
+   */
   ImmutableSet<String> getClassNames();
 
-  /** @return a hash of the {@code .class} files that went into the DEX file.*/
+  /**
+   * @return a hash of the {@code .class} files that went into the DEX file.
+   */
   Sha1HashCode getClassesHash();
 
   /**
    * @return A value that estimates how much space the Dalvik code represented by this object will
-   *     take up in a DEX file. The units for this estimate are not important, so long as they are
-   *     consistent with those used by {@link PreDexedFilesSorter} to determine how secondary DEX
-   *     files should be packed.
+   * take up in a DEX file. The units for this estimate are not important, so long as they are
+   * consistent with those used by {@link PreDexedFilesSorter} to determine how secondary DEX
+   * files should be packed.
    */
   int getSizeEstimate();
 
+  DexInfo getDexInfo();
+
   Function<DexProducedFromJavaLibrary, DexWithClasses> TO_DEX_WITH_CLASSES =
       new Function<DexProducedFromJavaLibrary, DexWithClasses>() {
-    @Override
-    @Nullable
-    public DexWithClasses apply(DexProducedFromJavaLibrary preDex) {
-      if (!preDex.hasOutput()) {
-        return null;
-      }
-
-      final Path pathToDex = preDex.getPathToDex();
-      final ImmutableSet<String> classNames = preDex.getClassNames().keySet();
-      final Sha1HashCode classesHash = Sha1HashCode.fromHashCode(
-          Hashing.combineOrdered(preDex.getClassNames().values()));
-      final int linearAllocEstimate = preDex.getLinearAllocEstimate();
-      return new DexWithClasses() {
         @Override
-        public Path getPathToDexFile() {
-          return pathToDex;
-        }
+        @Nullable
+        public DexWithClasses apply(final DexProducedFromJavaLibrary preDex) {
+          if (!preDex.hasOutput()) {
+            return null;
+          }
 
-        @Override
-        public ImmutableSet<String> getClassNames() {
-          return classNames;
-        }
+          final Path pathToDex = preDex.getPathToDex();
+          final ImmutableSet<String> classNames = preDex.getClassNames().keySet();
+          final Sha1HashCode classesHash = Sha1HashCode.fromHashCode(
+              Hashing.combineOrdered(preDex.getClassNames().values()));
+          final int linearAllocEstimate = preDex.getLinearAllocEstimate();
+          return new DexWithClasses() {
+            @Override
+            public Path getPathToDexFile() {
+              return pathToDex;
+            }
 
-        @Override
-        public Sha1HashCode getClassesHash() {
-          return classesHash;
-        }
+            @Override
+            public ImmutableSet<String> getClassNames() {
+              return classNames;
+            }
 
-        @Override
-        public int getSizeEstimate() {
-          return linearAllocEstimate;
+            @Override
+            public Sha1HashCode getClassesHash() {
+              return classesHash;
+            }
+
+            @Override
+            public int getSizeEstimate() {
+              return linearAllocEstimate;
+            }
+
+            @Override
+            public DexInfo getDexInfo() {
+              return preDex.getDexInfo();
+            }
+          };
         }
       };
-    }
-  };
+
 
   Comparator<DexWithClasses> DEX_WITH_CLASSES_COMPARATOR =
       new Comparator<DexWithClasses>() {
@@ -95,7 +109,7 @@ public interface DexWithClasses {
         }
       };
 
-  Function <DexWithClasses, Path> TO_PATH =
+  Function<DexWithClasses, Path> TO_PATH =
       new Function<DexWithClasses, Path>() {
         @Override
         public Path apply(DexWithClasses input) {
