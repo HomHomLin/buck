@@ -96,7 +96,7 @@ public class AndroidLibraryDescription
             Suppliers.ofInstance(resolver.getAllRules(args.exportedDeps.get()))),
         javacOptions,
         DependencyMode.FIRST_ORDER,
-        /* forceFinalResourceIds */ true,
+        /* forceFinalResourceIds */ false,
         args.resourceUnionPackage,
         args.finalRName);
 
